@@ -1,6 +1,13 @@
-
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+
+const slabSchema = new mongoose.Schema({
+  minPercent: { type: Number, required: true, default: 0 },
+  maxPercent: { type: Number, required: true, default: 9999 },
+  rate: { type: Number, required: true, default: 0 },
+  name: { type: String, default: '' },
+  color: { type: String, default: 'orange' }
+}, { _id: false });
 
 const userSchema = new mongoose.Schema(
   {
@@ -28,7 +35,7 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
-    // ✅ Custom Target fields set by Admin
+    // Quotas & Targets
     targetTotal: {
       type: Number,
       default: 250000,
@@ -41,11 +48,44 @@ const userSchema = new mongoose.Schema(
       type: Number,
       default: 75000,
     },
+    // Commission Calculation Basis
+    calculationBasis: {
+      type: String,
+      enum: ['totalSales', 'paidAmount'],
+      default: 'totalSales'
+    },
+    // Gatekeeper Qualification Rules
+    gatekeeperEnabled: {
+      type: Boolean,
+      default: true
+    },
+    gatekeeperMinCore: {
+      type: Number,
+      default: 100
+    },
+    // Milestone Flat Cash Bonus
+    flatBonus: {
+      type: Number,
+      default: 0
+    },
+    bonusMinPercent: {
+      type: Number,
+      default: 100
+    },
+    // Custom Slabs (Tier Configuration)
+    customSlabs: {
+      type: [slabSchema],
+      default: [
+        { minPercent: 70, maxPercent: 99, rate: 4, name: 'On Track', color: 'amber' },
+        { minPercent: 100, maxPercent: 149, rate: 6, name: 'Target Achieved', color: 'green' },
+        { minPercent: 150, maxPercent: 199, rate: 8, name: 'Star Performer', color: 'blue' },
+        { minPercent: 200, maxPercent: 9999, rate: 10, name: 'Elite Club', color: 'emerald' }
+      ]
+    },
     lastLogin: {
       type: Date,
       default: null,
     },
-    // Password Reset Fields
     resetPasswordToken: {
       type: String,
       default: null,
@@ -62,13 +102,11 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Correct password hashing
 userSchema.pre('save', async function () {
   if (!this.isModified('password')) return;
   this.password = await bcrypt.hash(this.password, 12);
 });
 
-// Compare password
 userSchema.methods.comparePassword = async function (candidatePassword) {
   return bcrypt.compare(candidatePassword, this.password);
 };

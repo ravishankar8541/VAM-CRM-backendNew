@@ -1,5 +1,4 @@
-
-
+// (admin@@1234)
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const crypto = require('crypto');
@@ -46,6 +45,7 @@ exports.register = async (req, res) => {
       message: 'User registered successfully',
       user: {
         id: user._id,
+        _id: user._id,
         name: user.name,
         username: user.username,
         role: user.role,
@@ -53,6 +53,7 @@ exports.register = async (req, res) => {
         targetTotal: user.targetTotal,
         targetCore: user.targetCore,
         targetGoogleAds: user.targetGoogleAds,
+        customSlabs: user.customSlabs || [],
       },
     });
 
@@ -130,6 +131,7 @@ exports.login = async (req, res) => {
       token,
       user: {
         id: user._id,
+        _id: user._id,
         name: user.name,
         username: user.username,
         role: user.role,
@@ -137,6 +139,12 @@ exports.login = async (req, res) => {
         targetTotal: user.targetTotal,
         targetCore: user.targetCore,
         targetGoogleAds: user.targetGoogleAds,
+        calculationBasis: user.calculationBasis || 'totalSales',
+        gatekeeperEnabled: user.gatekeeperEnabled !== undefined ? user.gatekeeperEnabled : true,
+        gatekeeperMinCore: user.gatekeeperMinCore !== undefined ? user.gatekeeperMinCore : 100,
+        flatBonus: user.flatBonus || 0,
+        bonusMinPercent: user.bonusMinPercent || 100,
+        customSlabs: user.customSlabs || [],
       },
     });
   } catch (error) {
@@ -149,7 +157,7 @@ exports.login = async (req, res) => {
   }
 };
 
-// GET CURRENT USER
+// GET CURRENT USER (Used by /api/auth/me)
 exports.getCurrentUser = async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select('-password');
@@ -172,6 +180,7 @@ exports.getCurrentUser = async (req, res) => {
       success: true,
       user: {
         id: user._id,
+        _id: user._id,
         name: user.name,
         username: user.username,
         role: user.role,
@@ -179,6 +188,12 @@ exports.getCurrentUser = async (req, res) => {
         targetTotal: user.targetTotal,
         targetCore: user.targetCore,
         targetGoogleAds: user.targetGoogleAds,
+        calculationBasis: user.calculationBasis || 'totalSales',
+        gatekeeperEnabled: user.gatekeeperEnabled !== undefined ? user.gatekeeperEnabled : true,
+        gatekeeperMinCore: user.gatekeeperMinCore !== undefined ? user.gatekeeperMinCore : 100,
+        flatBonus: user.flatBonus || 0,
+        bonusMinPercent: user.bonusMinPercent || 100,
+        customSlabs: user.customSlabs || [],
         lastLogin: user.lastLogin,
         createdAt: user.createdAt,
       },
@@ -219,65 +234,64 @@ exports.getAllUsers = async (req, res) => {
   }
 };
 
-
+// ==================== UPDATE USER TARGET & INCENTIVE SLABS (ATOMIC WRITE) ====================
 exports.updateUserTarget = async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Admin only.',
-      });
-    }
-
     const { userId } = req.params;
-    const { targetTotal, targetCore, targetGoogleAds } = req.body;
+    const {
+      targetTotal,
+      targetCore,
+      targetGoogleAds,
+      calculationBasis,
+      gatekeeperEnabled,
+      gatekeeperMinCore,
+      flatBonus,
+      bonusMinPercent,
+      customSlabs,
+      slabs
+    } = req.body;
 
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found',
-      });
+    const slabsToSave = customSlabs || slabs;
+    const formattedSlabs = Array.isArray(slabsToSave)
+      ? slabsToSave.map((s) => ({
+          minPercent: Number(s.minPercent) || 0,
+          maxPercent: Number(s.maxPercent) || 0,
+          rate: Number(s.rate) || 0,
+          name: s.name || '',
+          color: s.color || 'orange'
+        }))
+      : [];
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      {
+        $set: {
+          targetTotal: Number(targetTotal) || 0,
+          targetCore: Number(targetCore) || 0,
+          targetGoogleAds: Number(targetGoogleAds) || 0,
+          calculationBasis: calculationBasis || 'totalSales',
+          gatekeeperEnabled: gatekeeperEnabled !== undefined ? Boolean(gatekeeperEnabled) : true,
+          gatekeeperMinCore: Number(gatekeeperMinCore) || 100,
+          flatBonus: Number(flatBonus) || 0,
+          bonusMinPercent: Number(bonusMinPercent) || 100,
+          customSlabs: formattedSlabs
+        }
+      },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
-
-    // ✅ Target sirf Sales team ke liye allow karein
-    if (user.role !== 'sales') {
-      return res.status(400).json({
-        success: false,
-        message: 'Target can only be assigned to users with Sales role.',
-      });
-    }
-
-    const total = targetTotal !== undefined ? Math.max(0, parseFloat(targetTotal) || 0) : (user.targetTotal || 250000);
-    const core = targetCore !== undefined ? Math.max(0, parseFloat(targetCore) || 0) : Math.round(total * 0.7);
-    const googleAds = targetGoogleAds !== undefined ? Math.max(0, parseFloat(targetGoogleAds) || 0) : Math.round(total * 0.3);
-
-    user.targetTotal = total;
-    user.targetCore = core;
-    user.targetGoogleAds = googleAds;
-
-    await user.save();
 
     return res.status(200).json({
       success: true,
-      message: `Target updated successfully for ${user.name}`,
-      data: {
-        _id: user._id,
-        name: user.name,
-        username: user.username,
-        role: user.role,
-        targetTotal: user.targetTotal,
-        targetCore: user.targetCore,
-        targetGoogleAds: user.targetGoogleAds,
-      },
+      message: 'Incentive slabs & target configuration updated successfully',
+      data: updatedUser
     });
   } catch (error) {
     console.error('Update user target error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server error while updating target',
-      error: error.message,
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -692,7 +706,7 @@ exports.getUsersForDropdown = async (req, res) => {
   try {
     const users = await User.find(
       { isActive: true },
-      'name username role targetTotal targetCore targetGoogleAds'
+      'name username role targetTotal targetCore targetGoogleAds customSlabs calculationBasis gatekeeperEnabled gatekeeperMinCore flatBonus bonusMinPercent'
     ).sort({ name: 1 });
 
     return res.status(200).json({
