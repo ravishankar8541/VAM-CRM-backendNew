@@ -1,5 +1,7 @@
 const ServiceBill = require('../models/ServiceBill');
 const Bill = require('../models/Bill');
+const Client = require('../models/Client');
+const User = require('../models/User');
 
 // ✅ Multi-Service Bill me se kisi ek service ko delete ya update karne ke liye
 exports.updateServiceBillById = async (req, res) => {
@@ -139,73 +141,7 @@ exports.getClientServiceBilling = async (req, res) => {
         
         const serviceBills = await ServiceBill.find(query);
         
-        const processedServices = serviceBills.map(service => {
-            let totalPaid = 0;
-            if (service.payments && service.payments.length > 0) {
-                service.payments.forEach(payment => {
-                    totalPaid += payment.amount || 0;
-                });
-            }
-            
-            const dueAmount = service.totalAmount - totalPaid;
-            
-            let displayName = service.serviceName;
-            if (service.isMultiService && service.services && service.services.length > 0) {
-                displayName = service.services.map(s => s.serviceName).join(' + ');
-            }
-            
-            const installmentBills = (service.payments || [])
-                .filter(p => p.billNumber)
-                .map((p, idx) => ({
-                    id: p._id,
-                    installmentNumber: idx + 1,
-                    amount: p.amount,
-                    date: p.paymentDate,
-                    billNumber: p.billNumber,
-                    status: 'Paid',
-                    paymentMethod: p.paymentMethod,
-                    remarks: p.remarks,
-                    gstAmount: 0,
-                    gstPercentage: 0,
-                    taxType: 'N/A'
-                }));
-            
-            let taxType = service.taxType || 'CGST+SGST';
-            let gstPercentage = service.gstPercentage || 0;
-            let gstAmount = service.gstAmount || 0;
-            
-            const isInstallmentService = service.bills && service.bills.length > 0 && 
-                service.bills.some(b => b.amount && b.paymentReceived && b.amount === b.paymentReceived);
-            
-            if (isInstallmentService) {
-                taxType = service.taxType || 'CGST+SGST';
-                gstPercentage = service.gstPercentage || 0;
-                gstAmount = 0;
-            }
-            
-            return {
-                _id: service._id,
-                serviceName: displayName,
-                isMultiService: service.isMultiService || false,
-                services: service.services || [],
-                duration: service.duration || '',
-                totalAmount: service.totalAmount,
-                paidAmount: totalPaid,
-                dueAmount: dueAmount > 0 ? dueAmount : 0,
-                status: dueAmount <= 0 ? 'Paid' : (totalPaid > 0 ? 'Partially Paid' : 'Pending'),
-                payments: service.payments || [],
-                bills: service.bills || [],
-                installmentBills: installmentBills,
-                totalInstallments: installmentBills.length,
-                taxType: taxType,
-                gstPercentage: gstPercentage,
-                gstAmount: gstAmount,
-                parentTaxType: service.taxType || 'CGST+SGST',
-                parentGstPercentage: service.gstPercentage || 0,
-                parentGstAmount: service.gstAmount || 0,
-                isInstallmentService: isInstallmentService
-            };
-        });
+        const processedServices = serviceBills.map(serializeServiceBilling);
         
         const totalBilled = processedServices.reduce((sum, s) => sum + s.totalAmount, 0);
         const totalPaid = processedServices.reduce((sum, s) => sum + s.paidAmount, 0);
@@ -394,4 +330,105 @@ exports.removeBillFromServiceBill = async (req, res) => {
             message: error.message
         });
     }
+};
+
+const serializeServiceBilling = (service) => {
+            let totalPaid = 0;
+            if (service.payments && service.payments.length > 0) {
+                service.payments.forEach(payment => {
+                    totalPaid += payment.amount || 0;
+                });
+            }
+            
+            const dueAmount = service.totalAmount - totalPaid;
+            
+            let displayName = service.serviceName;
+            if (service.isMultiService && service.services && service.services.length > 0) {
+                displayName = service.services.map(s => s.serviceName).join(' + ');
+            }
+            
+            const installmentBills = (service.payments || [])
+                .filter(p => p.billNumber)
+                .map((p, idx) => ({
+                    id: p._id,
+                    installmentNumber: idx + 1,
+                    amount: p.amount,
+                    date: p.paymentDate,
+                    billNumber: p.billNumber,
+                    status: 'Paid',
+                    paymentMethod: p.paymentMethod,
+                    remarks: p.remarks,
+                    gstAmount: 0,
+                    gstPercentage: 0,
+                    taxType: 'N/A'
+                }));
+            
+            let taxType = service.taxType || 'CGST+SGST';
+            let gstPercentage = service.gstPercentage || 0;
+            let gstAmount = service.gstAmount || 0;
+            
+            const isInstallmentService = service.bills && service.bills.length > 0 && 
+                service.bills.some(b => b.amount && b.paymentReceived && b.amount === b.paymentReceived);
+            
+            if (isInstallmentService) {
+                taxType = service.taxType || 'CGST+SGST';
+                gstPercentage = service.gstPercentage || 0;
+                gstAmount = 0;
+            }
+            
+            return {
+                _id: service._id,
+                serviceName: displayName,
+                isMultiService: service.isMultiService || false,
+                services: service.services || [],
+                duration: service.duration || '',
+                totalAmount: service.totalAmount,
+                paidAmount: totalPaid,
+                dueAmount: dueAmount > 0 ? dueAmount : 0,
+                status: dueAmount <= 0 ? 'Paid' : (totalPaid > 0 ? 'Partially Paid' : 'Pending'),
+                payments: service.payments || [],
+                bills: service.bills || [],
+                installmentBills: installmentBills,
+                totalInstallments: installmentBills.length,
+                taxType: taxType,
+                gstPercentage: gstPercentage,
+                gstAmount: gstAmount,
+                parentTaxType: service.taxType || 'CGST+SGST',
+                parentGstPercentage: service.gstPercentage || 0,
+                parentGstAmount: service.gstAmount || 0,
+                isInstallmentService: isInstallmentService
+            };
+        };
+
+// One authenticated request; calculations match the existing per-client endpoint.
+exports.getSubscriptionData = async (req, res) => {
+  try {
+    const role = req.user?.role;
+    if (!['admin', 'hr', 'employee', 'sales'].includes(role)) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+    const ownOnly = role === 'employee' || role === 'sales';
+    const owner = req.user.id || req.user._id;
+    if (ownOnly && !owner) return res.status(403).json({ success: false, message: 'Access denied' });
+    const [clients, bills, services, users] = await Promise.all([
+      Client.find(ownOnly ? { createdBy: owner } : {}).sort({ createdAt: -1 }).lean(),
+      Bill.find(ownOnly ? { createdById: owner } : {})
+        .select('_id billNumber clientId createdById createdByUsername createdBy leadOwner billDate dueDate createdAt duration')
+        .sort({ createdAt: -1 }).lean(),
+      ServiceBill.find(ownOnly ? { createdBy: owner } : {}).lean(),
+      User.find({ isActive: true }).select('_id name username role').sort({ name: 1 }).lean()
+    ]);
+    const visibleClients = new Set(clients.map(c => String(c._id)));
+    const grouped = {};
+    for (const service of services) {
+      const id = String(service.clientId?._id || service.clientId || '');
+      if (!visibleClients.has(id)) continue;
+      (grouped[id] ||= []).push(serializeServiceBilling(service));
+    }
+    res.set('Cache-Control', 'no-store');
+    return res.status(200).json({ success: true, data: { clients, bills, serviceBills: grouped, users } });
+  } catch (error) {
+    console.error('Subscription data error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to load subscriptions' });
+  }
 };

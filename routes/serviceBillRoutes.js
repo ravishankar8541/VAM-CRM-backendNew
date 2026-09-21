@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const {
     getClientServiceBilling,
+    getSubscriptionData,
     addServicePayment,
     deleteServiceBill,
     removeBillFromServiceBill,
@@ -24,6 +25,9 @@ const authMiddleware = (req, res, next) => {
         next();
     }
 };
+
+// New bulk route must use the existing strict authentication middleware.
+router.get('/subscription-data', require('../middleware/auth'), getSubscriptionData);
 
 router.use(authMiddleware);
 

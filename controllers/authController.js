@@ -1,4 +1,3 @@
-// (admin@@1234)
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const crypto = require('crypto');
@@ -122,8 +121,19 @@ exports.login = async (req, res) => {
       { expiresIn: '1d' }
     );
 
-    user.lastLogin = new Date();
-    await user.save();
+    // Authentication has succeeded. Do not delay the response for login metadata.
+    // Best effort: a process shutdown or database failure can lose this timestamp.
+    const lastLogin = new Date();
+    setImmediate(async () => {
+      try {
+        await User.updateOne(
+          { _id: user._id },
+          { $max: { lastLogin } }
+        ).exec();
+      } catch (error) {
+        console.error('Last login update failed:', error.message);
+      }
+    });
 
     return res.status(200).json({
       success: true,
