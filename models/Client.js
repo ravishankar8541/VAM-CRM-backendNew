@@ -101,4 +101,7 @@ const clientSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
+clientSchema.index({ createdBy: 1, createdAt: -1 });
+clientSchema.index({ createdAt: -1 });
+
 module.exports = mongoose.model("Client", clientSchema);

@@ -332,7 +332,7 @@ exports.removeBillFromServiceBill = async (req, res) => {
     }
 };
 
-const serializeServiceBilling = (service) => {
+const serializeServiceBilling = (service, compact = false) => {
             let totalPaid = 0;
             if (service.payments && service.payments.length > 0) {
                 service.payments.forEach(payment => {
@@ -346,6 +346,20 @@ const serializeServiceBilling = (service) => {
             if (service.isMultiService && service.services && service.services.length > 0) {
                 displayName = service.services.map(s => s.serviceName).join(' + ');
             }
+
+            // The subscription page does not consume the duplicate installment/tax summary.
+            if (compact === true) return {
+                _id: service._id,
+                serviceName: displayName,
+                isMultiService: service.isMultiService || false,
+                services: service.services || [],
+                duration: service.duration || '',
+                totalAmount: service.totalAmount,
+                paidAmount: totalPaid,
+                dueAmount: Math.max(0, dueAmount),
+                payments: service.payments || [],
+                bills: service.bills || []
+            };
             
             const installmentBills = (service.payments || [])
                 .filter(p => p.billNumber)
@@ -411,11 +425,14 @@ exports.getSubscriptionData = async (req, res) => {
     const owner = req.user.id || req.user._id;
     if (ownOnly && !owner) return res.status(403).json({ success: false, message: 'Access denied' });
     const [clients, bills, services, users] = await Promise.all([
-      Client.find(ownOnly ? { createdBy: owner } : {}).sort({ createdAt: -1 }).lean(),
+      Client.find(ownOnly ? { createdBy: owner } : {})
+        .select('_id name companyName email phone category leadOwner createdBy createdByUsername')
+        .sort({ createdAt: -1 }).lean(),
       Bill.find(ownOnly ? { createdById: owner } : {})
         .select('_id billNumber clientId createdById createdByUsername createdBy leadOwner billDate dueDate createdAt duration')
         .sort({ createdAt: -1 }).lean(),
-      ServiceBill.find(ownOnly ? { createdBy: owner } : {}).lean(),
+      ServiceBill.find(ownOnly ? { createdBy: owner } : {})
+        .select('_id clientId serviceName isMultiService services duration totalAmount payments bills').lean(),
       User.find({ isActive: true }).select('_id name username role').sort({ name: 1 }).lean()
     ]);
     const visibleClients = new Set(clients.map(c => String(c._id)));
@@ -423,10 +440,11 @@ exports.getSubscriptionData = async (req, res) => {
     for (const service of services) {
       const id = String(service.clientId?._id || service.clientId || '');
       if (!visibleClients.has(id)) continue;
-      (grouped[id] ||= []).push(serializeServiceBilling(service));
+      (grouped[id] ||= []).push(serializeServiceBilling(service, true));
     }
     res.set('Cache-Control', 'no-store');
-    return res.status(200).json({ success: true, data: { clients, bills, serviceBills: grouped, users } });
+    const subscribedClients = clients.filter(client => grouped[String(client._id)]?.length);
+    return res.status(200).json({ success: true, data: { clients: subscribedClients, bills, serviceBills: grouped, users } });
   } catch (error) {
     console.error('Subscription data error:', error);
     return res.status(500).json({ success: false, message: 'Unable to load subscriptions' });

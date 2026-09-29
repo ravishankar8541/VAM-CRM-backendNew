@@ -343,4 +343,7 @@ billSchema.methods.addPayment = async function(paymentData) {
     return this;
 };
 
+billSchema.index({ createdById: 1, createdAt: -1 });
+billSchema.index({ createdAt: -1 });
+
 module.exports = mongoose.model("Bill", billSchema);

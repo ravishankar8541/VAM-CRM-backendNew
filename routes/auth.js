@@ -22,6 +22,8 @@ const {
 const router = express.Router();
 
 // ==================== PUBLIC ROUTES ====================
+// Start the connection while the user fills in the login form. No private data.
+router.get('/ready', (req, res) => res.status(204).end());
 router.post('/login', login);
 router.post('/request-reset', requestPasswordReset);
 router.get('/verify-reset/:token', verifyResetToken);

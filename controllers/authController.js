@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const crypto = require('crypto');
 const { sendPasswordResetEmail } = require('../services/emailService');
@@ -78,7 +79,9 @@ exports.login = async (req, res) => {
       });
     }
 
-    const user = await User.findOne({ username }).select('+password');
+    const user = await User.findOne({ username })
+      .select('_id name username role isActive targetTotal targetCore targetGoogleAds calculationBasis gatekeeperEnabled gatekeeperMinCore flatBonus bonusMinPercent customSlabs +password')
+      .lean();
 
     if (!user) {
       return res.status(401).json({
@@ -101,7 +104,7 @@ exports.login = async (req, res) => {
       });
     }
 
-    const isPasswordValid = await user.comparePassword(password);
+    const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       return res.status(401).json({
         success: false,

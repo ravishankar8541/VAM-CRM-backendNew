@@ -97,4 +97,6 @@ const serviceBillSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
+serviceBillSchema.index({ createdBy: 1 });
+
 module.exports = mongoose.model('ServiceBill', serviceBillSchema);
